@@ -1,6 +1,7 @@
 <nav style="border-bottom:1px solid #e5e2dc;padding:16px 32px;display:flex;align-items:center;gap:20px;font-family:'Inter',sans-serif">
   <a href="/"><img src="/logo.png" alt="GetRallied" style="height:56px;display:block"></a>
   <div style="flex:1"></div>
+  <a href="/my-claims" style="color:<%= typeof _navActive !== 'undefined' && _navActive === 'my-claims' ? '#111' : '#777' %>;text-decoration:none;font-size:14px;font-weight:600">My Claims</a>
   <a href="/explore" style="color:<%= typeof _navActive !== 'undefined' && _navActive === 'explore' ? '#111' : '#777' %>;text-decoration:none;font-size:14px;font-weight:600">Explore</a>
   <% if (typeof account !== 'undefined' && account) { %>
     <a href="/dashboard" style="color:<%= typeof _navActive !== 'undefined' && _navActive === 'dashboard' ? '#111' : '#777' %>;text-decoration:none;font-size:14px;font-weight:600">Dashboard</a>

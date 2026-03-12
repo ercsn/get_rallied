@@ -626,12 +626,14 @@ app.get('/organizer/:token', (req, res) => {
   const __account = getAccount(req);
     res.render('organizer', {
       account: __account,
+      csrfToken: res.locals.csrfToken,
     event, tasks, claimsByTask, pendingClaims, allClaimsWithTask, eventUrl,
     totalNeeded, totalClaimed,
     isNew: req.query.new === '1',
     justApproved: req.query.approved,
     justDenied: req.query.denied,
     saved: req.query.saved === '1',
+    emailed: req.query.emailed || null,
     uploaded: req.query.uploaded === '1'
   });
 });
@@ -740,6 +742,16 @@ app.post('/organizer/:token/update-details', (req, res) => {
 });
 
 
+// Update event status (active/completed/cancelled)
+app.post('/organizer/:token/update-status', (req, res) => {
+  const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
+  if (!event) return res.status(404).send('Not found');
+  const { status } = req.body;
+  if (!['active', 'completed', 'cancelled'].includes(status)) return res.status(400).send('Invalid status');
+  db.prepare('UPDATE events SET status = ? WHERE id = ?').run(status, event.id);
+  res.redirect(`/organizer/${req.params.token}?saved=1`);
+});
+
 // Update event info (title, vision, description)
 app.post('/organizer/:token/update-info', (req, res) => {
   const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
@@ -749,6 +761,46 @@ app.post('/organizer/:token/update-info', (req, res) => {
   db.prepare('UPDATE events SET title = ?, vision = ?, description = ? WHERE id = ?')
     .run(title.trim(), (vision || '').trim(), (description || '').trim(), event.id);
   res.redirect(`/organizer/${req.params.token}?saved=1`);
+});
+
+// Email all volunteers
+app.post('/organizer/:token/email-volunteers', async (req, res) => {
+  const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
+  if (!event) return res.status(404).send('Not found');
+  const { subject, message } = req.body;
+  if (!subject || !message) return res.redirect(`/organizer/${req.params.token}?error=Subject and message required`);
+
+  // Get unique volunteer emails
+  const volunteers = db.prepare(`
+    SELECT DISTINCT LOWER(email) as email, name FROM claims
+    WHERE event_id = ? AND status = 'approved' AND email != ''
+  `).all(event.id);
+
+  if (volunteers.length === 0) return res.redirect(`/organizer/${req.params.token}?error=No volunteers with email addresses`);
+
+  const eventUrl = `${BASE_URL}/event/${event.id}`;
+  const dateStr = [event.date, event.event_time].filter(Boolean).join(' · ');
+  const locStr = [event.location_name || event.location, event.location_address].filter(Boolean).join(', ');
+
+  let sent = 0;
+  for (const v of volunteers) {
+    try {
+      await sendEmail(v.email,
+        subject,
+        `<div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+          <img src="${BASE_URL}/logo.png" alt="GetRallied" style="height:36px;margin-bottom:24px;display:block">
+          <h2 style="font-size:18px;font-weight:800;color:#111;margin-bottom:4px">${event.title}</h2>
+          ${dateStr ? '<p style="color:#888;font-size:13px;margin-bottom:16px">📅 ' + dateStr + (locStr ? ' · 📍 ' + locStr : '') + '</p>' : ''}
+          <div style="color:#333;font-size:15px;line-height:1.6;margin-bottom:24px;white-space:pre-wrap">${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+          <a href="${eventUrl}" style="display:inline-block;background:#111;color:#fff;padding:10px 20px;font-weight:700;font-size:14px;text-decoration:none">View event →</a>
+          <p style="color:#bbb;font-size:11px;margin-top:28px">You're receiving this because you signed up for ${event.title} on GetRallied.</p>
+        </div>`
+      );
+      sent++;
+    } catch(e) { console.error('Email failed for', v.email, e.message); }
+  }
+
+  res.redirect(`/organizer/${req.params.token}?emailed=${sent}`);
 });
 
 // Reorder tasks
@@ -1011,6 +1063,25 @@ app.post('/account/photo/remove', requireAuth, (req, res) => {
     db.prepare('UPDATE accounts SET profile_pic = NULL WHERE id = ?').run(req.account.id);
   }
   res.redirect('/account?saved=1');
+});
+
+// ── My Claims (volunteer lookup) ────────────────────────────────────────────
+app.get('/my-claims', (req, res) => {
+  const email = req.query.email || '';
+  let claims = [];
+  if (email) {
+    claims = db.prepare(`
+      SELECT c.*, t.title as task_title, t.description as task_desc,
+             e.title as event_title, e.date as event_date, e.location as event_location,
+             e.id as event_id, e.event_time, e.location_name, e.banner_image
+      FROM claims c
+      JOIN tasks t ON c.task_id = t.id
+      JOIN events e ON c.event_id = e.id
+      WHERE LOWER(c.email) = LOWER(?) AND c.status != 'denied'
+      ORDER BY e.date DESC, c.created_at DESC
+    `).all(email.trim());
+  }
+  res.render('my-claims', { email, claims, account: getAccount(req) });
 });
 
 app.get('/explore', (req, res) => {

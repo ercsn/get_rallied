@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title><%= event.title %> — Organizer · GetRallied</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -166,6 +167,9 @@ input:focus,select:focus{border-color:#111111}
 <%- include("partials/nav", { _navActive: "dashboard" }) %>
   <a href="<%= eventUrl %>" target="_blank" class="public-link">View public page →</a>
 
+<% if (typeof emailed !== 'undefined' && emailed) { %>
+<div class="success-bar">✉️ Message sent to <%= emailed %> volunteer<%= emailed !== '1' ? 's' : '' %>.</div>
+<% } %>
 <% if (typeof saved !== 'undefined' && saved) { %>
   <div class="success-bar"> Event details saved.</div>
   <% } %>
@@ -175,7 +179,39 @@ input:focus,select:focus{border-color:#111111}
 
 <div class="main">
   <div class="page-title"><%= event.title %></div>
-  <div class="page-meta"><%= [event.date, event.location].filter(Boolean).join(' · ') %> &nbsp;·&nbsp; Organizer dashboard</div>
+  <div class="page-meta">
+    <%= [event.date, event.location].filter(Boolean).join(' · ') %> &nbsp;·&nbsp; Organizer dashboard
+    &nbsp;·&nbsp;
+    <% const evtStatus = event.status || 'active'; %>
+    <% if (evtStatus === 'active') { %>
+      <span style="color:#166534;font-weight:700">● Active</span>
+    <% } else if (evtStatus === 'completed') { %>
+      <span style="color:#1d4ed8;font-weight:700">✓ Completed</span>
+    <% } else { %>
+      <span style="color:#b91c1c;font-weight:700">✗ Cancelled</span>
+    <% } %>
+  </div>
+  <div style="margin:12px 0 20px;display:flex;gap:8px;flex-wrap:wrap">
+    <% if (evtStatus !== 'active') { %>
+      <form method="POST" action="/organizer/<%= event.organizer_token %>/update-status" style="display:inline">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+        <input type="hidden" name="status" value="active">
+        <button type="submit" style="padding:6px 14px;border:1.5px solid #e5e2dc;background:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);color:#166534">↻ Reactivate</button>
+      </form>
+    <% } %>
+    <% if (evtStatus === 'active') { %>
+      <form method="POST" action="/organizer/<%= event.organizer_token %>/update-status" style="display:inline">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+        <input type="hidden" name="status" value="completed">
+        <button type="submit" style="padding:6px 14px;border:1.5px solid #e5e2dc;background:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);color:#1d4ed8">✓ Mark Completed</button>
+      </form>
+      <form method="POST" action="/organizer/<%= event.organizer_token %>/update-status" style="display:inline" onsubmit="return confirm('Cancel this event? Volunteers won\'t be notified automatically.')">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+        <input type="hidden" name="status" value="cancelled">
+        <button type="submit" style="padding:6px 14px;border:1.5px solid #fecaca;background:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);color:#b91c1c">✗ Cancel Event</button>
+      </form>
+    <% } %>
+  </div>
 
   <%# Edit event info %>
   <div class="details-section">
@@ -450,6 +486,26 @@ input:focus,select:focus{border-color:#111111}
         </label>
       </div>
       <button type="submit" class="add-btn">+ Add task</button>
+    </form>
+  </div>
+</div>
+
+<%# Email volunteers section %>
+<div style="max-width:700px;margin:32px auto;padding:0 24px">
+  <div class="details-section">
+    <h3>✉️ Email Volunteers</h3>
+    <p style="color:#777;font-size:13px;margin-bottom:16px">Send a message to everyone who has claimed a task.</p>
+    <form method="POST" action="/organizer/<%= event.organizer_token %>/email-volunteers">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;font-weight:600;color:#777;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Subject</label>
+        <input type="text" name="subject" placeholder="Update: <%= event.title %>" required style="width:100%;padding:10px 12px;border:1.5px solid #e5e2dc;font-size:14px;font-family:var(--font);color:#111;border-radius:4px">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;font-weight:600;color:#777;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Message</label>
+        <textarea name="message" rows="4" placeholder="Hey everyone! Quick update about the event..." required style="width:100%;padding:10px 12px;border:1.5px solid #e5e2dc;font-size:14px;font-family:var(--font);color:#111;border-radius:4px;resize:vertical"></textarea>
+      </div>
+      <button type="submit" onclick="this.textContent=\'Sending...\';this.disabled=true;this.form.submit()" style="background:#111;color:#fff;border:none;padding:10px 20px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Send to all volunteers</button>
     </form>
   </div>
 </div>
