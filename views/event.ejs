@@ -254,7 +254,7 @@ input:focus{border-color:#111111}
     <img class="qr-img" src="<%= qrDataUrl %>" alt="QR Code">
     <div class="share-text">
       <h3>Spread the word</h3>
-      <p>Anyone with the link can claim a task — no account needed.</p>
+      <p>Claim a task to get involved. <a href="/signup" style="color:#111;font-weight:600">Create an account</a> to track your claims privately.</p>
       <div class="copy-row">
         <input type="text" id="share-url" readonly value="<%= eventUrl %>">
         <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('share-url').value);this.textContent='Copied!'">Copy</button>
@@ -276,9 +276,14 @@ input:focus{border-color:#111111}
     <div class="modal-sub" id="modal-sub">Let the organizer know who you are.</div>
     <form method="POST" id="claim-form">
       <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
-      <div class="field"><label>Your name *</label><input type="text" name="name" required placeholder="Full name"></div>
-      <div class="field"><label>Email</label><input type="email" name="email" placeholder="For follow-up"></div>
+      <div class="field"><label>Your name *</label><input type="text" name="name" required placeholder="Full name" value="<%= account && account.name ? account.name : '' %>"></div>
+      <div class="field"><label>Email</label><input type="email" name="email" placeholder="For follow-up" value="<%= account && account.email ? account.email : '' %>"></div>
       <div class="field"><label>Phone</label><input type="text" name="phone" placeholder="Optional"></div>
+      <% if (!account) { %>
+      <div style="background:#f7f6f4;border:1px solid #e5e2dc;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#555;line-height:1.5">
+        🔒 <a href="/signup?next=<%= encodeURIComponent('/event/' + event.id) %>" style="color:#111;font-weight:700">Create an account</a> or <a href="/signin?next=<%= encodeURIComponent('/event/' + event.id) %>" style="color:#111;font-weight:700">sign in</a> to track your claims privately.
+      </div>
+      <% } %>
       <div class="modal-btns">
         <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
         <button type="submit" class="btn-primary">Claim it</button>

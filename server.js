@@ -103,6 +103,7 @@ try { db.exec('ALTER TABLE events ADD COLUMN account_id TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE accounts ADD COLUMN profile_pic TEXT'); } catch(e) {}
 try { db.exec("ALTER TABLE events ADD COLUMN status TEXT DEFAULT 'active'"); } catch(e) {}
 try { db.exec('ALTER TABLE events ADD COLUMN milestones_sent TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE claims ADD COLUMN account_id TEXT DEFAULT NULL'); } catch(e) {}
 
 function genId(len = 10) {
   return crypto.randomBytes(Math.ceil(len * 0.75)).toString('hex').slice(0, len);
@@ -540,9 +541,10 @@ app.post('/claim/:taskId', async (req, res) => {
   const claimId = genId();
   const needsApproval = task.requires_approval === 1;
   const status = needsApproval ? 'pending' : 'approved';
+  const claimAccount = getAccount(req);
 
-  db.prepare(`INSERT INTO claims (id,task_id,event_id,name,email,phone,note,status) VALUES (?,?,?,?,?,?,?,?)`)
-    .run(claimId, task.id, task.event_id, name.trim(), email || '', phone || '', note || '', status);
+  db.prepare(`INSERT INTO claims (id,task_id,event_id,name,email,phone,note,status,account_id) VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(claimId, task.id, task.event_id, name.trim(), email || '', phone || '', note || '', status, claimAccount ? claimAccount.id : null);
 
   if (!needsApproval) {
     recalcClaimed(task.id);
@@ -1092,6 +1094,8 @@ app.post('/signup', async (req, res) => {
   db.prepare('INSERT INTO accounts (id, email, password_hash, name) VALUES (?,?,?,?)').run(id, email.toLowerCase().trim(), hash, (name || '').trim());
   // Link any existing events by this email to the new account
   db.prepare('UPDATE events SET account_id = ? WHERE LOWER(organizer_email) = LOWER(?) AND account_id IS NULL').run(id, email.trim());
+  // Link any existing claims by this email to the new account
+  db.prepare('UPDATE claims SET account_id = ? WHERE LOWER(email) = LOWER(?) AND account_id IS NULL').run(id, email.trim());
   const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
   setAuthCookie(res, account);
   res.redirect('/dashboard');
@@ -1109,6 +1113,8 @@ app.post('/signin', (req, res) => {
   if (!email || !password) return res.redirect('/signin?error=Email and password required');
   const account = db.prepare('SELECT * FROM accounts WHERE LOWER(email) = LOWER(?)').get(email.trim());
   if (!account || !bcrypt.compareSync(password, account.password_hash)) return res.redirect('/signin?error=Invalid email or password');
+  // Link any unclaimed claims to this account
+  db.prepare('UPDATE claims SET account_id = ? WHERE LOWER(email) = LOWER(?) AND account_id IS NULL').run(account.id, account.email);
   setAuthCookie(res, account);
   // Prevent open redirect — only allow local paths
   const safePath = (next && next.startsWith('/') && !next.startsWith('//')) ? next : '/dashboard';
@@ -1280,22 +1286,18 @@ app.post('/account/photo/remove', requireAuth, (req, res) => {
 });
 
 // ── My Claims (volunteer lookup) ────────────────────────────────────────────
-app.get('/my-claims', (req, res) => {
-  const email = req.query.email || '';
-  let claims = [];
-  if (email) {
-    claims = db.prepare(`
-      SELECT c.*, t.title as task_title, t.description as task_desc,
-             e.title as event_title, e.date as event_date, e.location as event_location,
-             e.id as event_id, e.event_time, e.location_name, e.banner_image
-      FROM claims c
-      JOIN tasks t ON c.task_id = t.id
-      JOIN events e ON c.event_id = e.id
-      WHERE LOWER(c.email) = LOWER(?) AND c.status != 'denied'
-      ORDER BY e.date DESC, c.created_at DESC
-    `).all(email.trim());
-  }
-  res.render('my-claims', { email, claims, account: getAccount(req) });
+app.get('/my-claims', requireAuth, (req, res) => {
+  const claims = db.prepare(`
+    SELECT c.*, t.title as task_title, t.description as task_desc,
+           e.title as event_title, e.date as event_date, e.location as event_location,
+           e.id as event_id, e.event_time, e.location_name, e.banner_image
+    FROM claims c
+    JOIN tasks t ON c.task_id = t.id
+    JOIN events e ON c.event_id = e.id
+    WHERE c.account_id = ? AND c.status != 'denied'
+    ORDER BY e.date DESC, c.created_at DESC
+  `).all(req.account.id);
+  res.render('my-claims', { claims, account: req.account });
 });
 
 app.get('/explore', (req, res) => {
