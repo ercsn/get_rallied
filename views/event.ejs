@@ -249,6 +249,18 @@ input:focus{border-color:#111111}
     <% }); %>
   </div>
 
+  <% if (typeof eventUpdates !== 'undefined' && eventUpdates.length > 0) { %>
+  <div class="section-label">📢 Updates from the organizer</div>
+  <div style="margin-bottom:24px">
+    <% eventUpdates.forEach(u => { %>
+    <div style="background:#f7f6f4;border:1px solid #e5e2dc;padding:14px 18px;margin-bottom:8px;border-radius:4px">
+      <div style="font-size:14px;color:#111;line-height:1.6;white-space:pre-wrap"><%= u.message %></div>
+      <div style="font-size:11px;color:#aaa;margin-top:8px">📌 <%= u.author_name || 'Organizer' %> · <%= new Date(u.created_at + 'Z').toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) %></div>
+    </div>
+    <% }); %>
+  </div>
+  <% } %>
+
   <div class="section-label">Share this event</div>
   <div class="share-card">
     <img class="qr-img" src="<%= qrDataUrl %>" alt="QR Code">

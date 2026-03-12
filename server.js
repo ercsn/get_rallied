@@ -105,6 +105,21 @@ try { db.exec("ALTER TABLE events ADD COLUMN status TEXT DEFAULT 'active'"); } c
 try { db.exec('ALTER TABLE events ADD COLUMN milestones_sent TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE claims ADD COLUMN account_id TEXT DEFAULT NULL'); } catch(e) {}
 
+// Date validation — machine-readable date for filtering
+try { db.exec('ALTER TABLE events ADD COLUMN date_iso TEXT DEFAULT NULL'); } catch(e) {}
+
+// Task comments/updates
+db.exec(`
+  CREATE TABLE IF NOT EXISTS event_updates (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    author_name TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY(event_id) REFERENCES events(id)
+  );
+`);
+
 function genId(len = 10) {
   return crypto.randomBytes(Math.ceil(len * 0.75)).toString('hex').slice(0, len);
 }
@@ -517,7 +532,8 @@ app.get('/event/:id', async (req, res) => {
   const ogPct = ogTotalNeeded > 0 ? Math.round(ogTotalClaimed / ogTotalNeeded * 100) : 0;
   const uniquePeople = db.prepare("SELECT COUNT(DISTINCT LOWER(email)) as c FROM claims WHERE event_id = ? AND status = 'approved' AND email != ''").get(event.id).c;
   const totalPeople = db.prepare("SELECT COUNT(*) as c FROM claims WHERE event_id = ? AND status = 'approved'").get(event.id).c;
-  res.render('event', { event, tasks, claimsByTask, pendingByTask, qrDataUrl, eventUrl, claimed: req.query.claimed, pending: req.query.pending, account: getAccount(req), baseUrl: BASE_URL, ogPct, ogTotalClaimed, ogTotalNeeded, peopleCount: uniquePeople || totalPeople });
+  const eventUpdates = db.prepare('SELECT * FROM event_updates WHERE event_id = ? ORDER BY created_at DESC').all(event.id);
+  res.render('event', { event, tasks, claimsByTask, pendingByTask, qrDataUrl, eventUrl, claimed: req.query.claimed, pending: req.query.pending, account: getAccount(req), baseUrl: BASE_URL, ogPct, ogTotalClaimed, ogTotalNeeded, peopleCount: uniquePeople || totalPeople, eventUpdates });
 });
 
 // Claim a task
@@ -699,11 +715,13 @@ app.get('/organizer/:token', (req, res) => {
   const taskMap = {}; tasks.forEach(t => taskMap[t.id] = t);
   const allClaimsWithTask = allClaims.map(c => ({ ...c, task: taskMap[c.task_id] }));
 
+  const eventUpdates = db.prepare('SELECT * FROM event_updates WHERE event_id = ? ORDER BY created_at DESC').all(event.id);
+
   const __account = getAccount(req);
     res.render('organizer', {
       account: __account,
       csrfToken: res.locals.csrfToken,
-    event, tasks, claimsByTask, pendingClaims, allClaimsWithTask, eventUrl,
+    event, tasks, claimsByTask, pendingClaims, allClaimsWithTask, eventUrl, eventUpdates,
     totalNeeded, totalClaimed,
     isNew: req.query.new === '1',
     justApproved: req.query.approved,
@@ -803,11 +821,17 @@ app.post('/organizer/:token/upload-images',
 app.post('/organizer/:token/update-details', (req, res) => {
   const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
   if (!event) return res.status(404).send('Not found');
-  const { date, event_time, location_name, location_address, location_maps_url } = req.body;
+  const { date, date_iso, event_time, location_name, location_address, location_maps_url } = req.body;
+  // Validate date_iso isn't in the past
+  if (date_iso) {
+    const today = new Date().toISOString().split('T')[0];
+    if (date_iso < today) return res.redirect(`/organizer/${req.params.token}?error=Date cannot be in the past`);
+  }
   db.prepare(`UPDATE events SET
-    date = ?, event_time = ?, location_name = ?, location_address = ?, location_maps_url = ?
+    date = ?, date_iso = ?, event_time = ?, location_name = ?, location_address = ?, location_maps_url = ?
     WHERE id = ?`).run(
     date || event.date,
+    date_iso || event.date_iso || null,
     event_time || null,
     location_name || null,
     location_address || null,
@@ -924,6 +948,25 @@ app.post('/organizer/:token/email-volunteers', async (req, res) => {
   }
 
   res.redirect(`/organizer/${req.params.token}?emailed=${sent}`);
+});
+
+// Post event update
+app.post('/organizer/:token/post-update', (req, res) => {
+  const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
+  if (!event) return res.status(404).send('Not found');
+  const { message } = req.body;
+  if (!message || !message.trim()) return res.redirect(`/organizer/${req.params.token}`);
+  db.prepare('INSERT INTO event_updates (id, event_id, message, author_name) VALUES (?,?,?,?)')
+    .run(genId(), event.id, message.trim(), event.organizer_name || 'Organizer');
+  res.redirect(`/organizer/${req.params.token}?saved=1`);
+});
+
+// Delete event update
+app.post('/organizer/:token/delete-update/:updateId', (req, res) => {
+  const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
+  if (!event) return res.status(404).send('Not found');
+  db.prepare('DELETE FROM event_updates WHERE id = ? AND event_id = ?').run(req.params.updateId, event.id);
+  res.redirect(`/organizer/${req.params.token}?saved=1`);
 });
 
 // Reorder tasks
@@ -1303,7 +1346,7 @@ app.get('/my-claims', requireAuth, (req, res) => {
 app.get('/explore', (req, res) => {
   const q = req.query.q || '';
   const sort = req.query.sort || 'newest';
-  let query = "SELECT * FROM events WHERE is_private = 0 AND (status IS NULL OR status = 'active')";
+  let query = "SELECT * FROM events WHERE is_private = 0 AND (status IS NULL OR status = 'active') AND (date_iso IS NULL OR date_iso >= date('now', '-1 day'))";
   const params = [];
   if (q) {
     query += " AND (LOWER(title) LIKE ? OR LOWER(location) LIKE ? OR LOWER(vision) LIKE ?)";
@@ -1311,8 +1354,8 @@ app.get('/explore', (req, res) => {
     params.push(like, like, like);
   }
   switch(sort) {
-    case 'soonest': query += " ORDER BY date ASC"; break;
-    case 'upcoming': query += " AND date >= date('now') ORDER BY date ASC"; break;
+    case 'soonest': query += " ORDER BY COALESCE(date_iso, '9999-12-31') ASC"; break;
+    case 'upcoming': query += " AND (date_iso IS NULL OR date_iso >= date('now')) ORDER BY COALESCE(date_iso, '9999-12-31') ASC"; break;
     case 'popular': query += " ORDER BY (SELECT COUNT(*) FROM claims WHERE claims.event_id = events.id AND status != 'denied') DESC"; break;
     default: query += " ORDER BY created_at DESC";
   }
