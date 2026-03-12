@@ -265,6 +265,43 @@ async function sendEmail(to, subject, html) {
   });
 }
 
+// ── SEO Routes ──────────────────────────────────────────────────────────────
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *
+Allow: /
+Allow: /explore
+Allow: /event/
+Disallow: /organizer/
+Disallow: /admin
+Disallow: /account
+Disallow: /dashboard
+Sitemap: ${BASE_URL}/sitemap.xml`);
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  const events = db.prepare("SELECT id, created_at FROM events WHERE is_private = 0 ORDER BY created_at DESC").all();
+  const urls = [
+    { loc: BASE_URL + '/', priority: '1.0', changefreq: 'weekly' },
+    { loc: BASE_URL + '/explore', priority: '0.9', changefreq: 'daily' },
+    { loc: BASE_URL + '/signup', priority: '0.7', changefreq: 'monthly' },
+    ...events.map(e => ({
+      loc: BASE_URL + '/event/' + e.id,
+      priority: '0.8',
+      changefreq: 'weekly',
+      lastmod: e.created_at ? e.created_at.split(' ')[0] : undefined
+    }))
+  ];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url>
+    <loc>${u.loc}</loc>
+    <priority>${u.priority}</priority>
+    <changefreq>${u.changefreq}</changefreq>${u.lastmod ? '\n    <lastmod>' + u.lastmod + '</lastmod>' : ''}
+  </url>`).join('\n')}
+</urlset>`;
+  res.type('application/xml').send(xml);
+});
+
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -353,7 +390,10 @@ app.get('/event/:id', async (req, res) => {
   });
   const eventUrl = `${BASE_URL}/event/${event.id}`;
   const qrDataUrl = await QRCode.toDataURL(eventUrl, { width: 200, margin: 1, color: { dark: '#111', light: '#fff' } });
-  res.render('event', { event, tasks, claimsByTask, pendingByTask, qrDataUrl, eventUrl, claimed: req.query.claimed, pending: req.query.pending, account: getAccount(req) });
+  const ogTotalNeeded = tasks.filter(t => t.quantity_needed > 0).reduce((s,t) => s + t.quantity_needed, 0);
+  const ogTotalClaimed = tasks.filter(t => t.quantity_needed > 0).reduce((s,t) => s + t.quantity_claimed, 0);
+  const ogPct = ogTotalNeeded > 0 ? Math.round(ogTotalClaimed / ogTotalNeeded * 100) : 0;
+  res.render('event', { event, tasks, claimsByTask, pendingByTask, qrDataUrl, eventUrl, claimed: req.query.claimed, pending: req.query.pending, account: getAccount(req), baseUrl: BASE_URL, ogPct, ogTotalClaimed, ogTotalNeeded });
 });
 
 // Claim a task
