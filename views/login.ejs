@@ -43,6 +43,7 @@
     <h1>Access your dashboard</h1>
     <p class="sub">Enter the email you used when creating your event. We'll send you a link to your organizer dashboard.</p>
     <form method="POST" action="/login">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
       <input type="email" name="email" placeholder="your@email.com" required autofocus>
       <button type="submit">Send my dashboard link</button>
     </form>

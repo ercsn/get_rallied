@@ -247,6 +247,7 @@ input:focus{border-color:#111111}
     <h3>Claim: <span id="modal-task-title"></span></h3>
     <div class="modal-sub" id="modal-sub">Let the organizer know who you are.</div>
     <form method="POST" id="claim-form">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
       <div class="field"><label>Your name *</label><input type="text" name="name" required placeholder="Full name"></div>
       <div class="field"><label>Email</label><input type="email" name="email" placeholder="For follow-up"></div>
       <div class="field"><label>Phone</label><input type="text" name="phone" placeholder="Optional"></div>

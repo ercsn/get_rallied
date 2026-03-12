@@ -181,6 +181,7 @@ input:focus,select:focus{border-color:#111111}
   <div class="details-section">
     <h3>📅 Time & Location</h3>
     <form method="POST" action="/organizer/<%= event.organizer_token %>/update-details">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
       <div class="details-grid">
         <div class="details-field">
           <label>Date</label>
@@ -213,6 +214,7 @@ input:focus,select:focus{border-color:#111111}
   <div class="upload-section">
     <h3>🖼 Event images</h3>
     <form method="POST" action="/organizer/<%= event.organizer_token %>/upload-images" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
       <div class="upload-grid">
         <div class="upload-field">
           <label>Org / Group logo</label>
@@ -236,6 +238,7 @@ input:focus,select:focus{border-color:#111111}
     <span style="font-size:13px;font-weight:600"><%= event.is_private ? "🔒 Private" : "🌐 Public" %></span>
     <span style="font-size:12px;color:var(--muted)"><%= event.is_private ? "Only people with the link can see this event" : "Anyone can find and view this event" %></span>
     <form method="POST" action="/organizer/<%= event.organizer_token %>/toggle-privacy" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
       <button type="submit" class="trust-toggle <%= event.is_private ? 'on' : '' %>"><%= event.is_private ? "Make public" : "Make private" %></button>
     </form>
     <span style="color:var(--border);margin:0 4px">|</span>
@@ -377,6 +380,7 @@ input:focus,select:focus{border-color:#111111}
         data-task-id="<%= task.id %>" data-token="<%= event.organizer_token %>"
         onclick="toggleLock(this)"><%= task.requires_approval ? '🔒' : '🔓' %></button>
       <form class="del-form" method="POST" action="/organizer/<%= event.organizer_token %>/delete-task/<%= task.id %>" onsubmit="return confirm('Remove this task?')">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
         <button type="submit" class="del-btn" title="Remove">✕</button>
       </form>
     </div>
@@ -400,6 +404,7 @@ input:focus,select:focus{border-color:#111111}
   <div class="add-section">
     <h4>Add a task manually</h4>
     <form method="POST" action="/organizer/<%= event.organizer_token %>/add-task">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
       <div class="form-grid">
         <input type="text" name="title" placeholder="Task title" required>
         <input type="text" name="description" placeholder="Short description (optional)">

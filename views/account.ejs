@@ -60,6 +60,7 @@
         </div>
         <div class="photo-actions">
           <form method="POST" action="/account/photo" enctype="multipart/form-data" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
             <label class="file-label">
               📷 Upload photo
               <input type="file" name="photo" accept="image/*" onchange="this.form.submit()">
@@ -67,6 +68,7 @@
           </form>
           <% if (account.profile_pic) { %>
             <form method="POST" action="/account/photo/remove" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
               <button type="submit" class="remove-link">Remove photo</button>
             </form>
           <% } %>
@@ -78,6 +80,7 @@
     <div class="section">
       <div class="section-title">Profile</div>
       <form method="POST" action="/account">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
         <label>Name</label>
         <input type="text" name="name" value="<%= account.name || '' %>" placeholder="Your name">
         <label>Email</label>
@@ -90,6 +93,7 @@
     <div class="section">
       <div class="section-title">Change Password</div>
       <form method="POST" action="/account/password">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>">
         <label>Current Password</label>
         <input type="password" name="current_password" required>
         <label>New Password</label>

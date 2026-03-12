@@ -14,6 +14,9 @@ const upload = multer({
   }
 });
 const path = require('path');
+const crypto = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
 
@@ -24,6 +27,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
 const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL || 'jason@ercsn.com';
 const BREVO_KEY = process.env.BREVO_KEY;
 const ADMIN_PASS = process.env.ADMIN_PASS || 'getrallied2026';
+const COOKIE_SECRET = process.env.COOKIE_SECRET || crypto.randomBytes(32).toString('hex');
 
 // DB
 const db = new Database('/opt/ourtask/ourtask.db');
@@ -89,10 +93,11 @@ try { db.exec('ALTER TABLE events ADD COLUMN account_id TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE accounts ADD COLUMN profile_pic TEXT'); } catch(e) {}
 
 function genId(len = 10) {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let id = '';
-  for (let i = 0; i < len; i++) id += chars[Math.floor(Math.random() * chars.length)];
-  return id;
+  return crypto.randomBytes(Math.ceil(len * 0.75)).toString('hex').slice(0, len);
+}
+
+function genSecureToken(bytes = 24) {
+  return crypto.randomBytes(bytes).toString('hex');
 }
 
 // Add image columns if missing (safe migration)
@@ -114,25 +119,88 @@ function isFull(task) { return !isUnlimited(task) && task.quantity_claimed >= ta
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true, limit: '100kb' }));
+app.use(bodyParser.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(cookieParser());
+app.use(helmet({
+  contentSecurityPolicy: false, // EJS inline scripts need this off for now
+  crossOriginEmbedderPolicy: false,
+}));
+
+// ── CSRF Protection ───────────────────────────────────────────────────────────
+function generateCsrf(req) {
+  if (!req.cookies?._csrf_secret) {
+    req._csrfSecret = crypto.randomBytes(24).toString('hex');
+  } else {
+    req._csrfSecret = req.cookies._csrf_secret;
+  }
+  return crypto.createHmac('sha256', req._csrfSecret).update('csrf').digest('hex');
+}
+
+function csrfMiddleware(req, res, next) {
+  // Set secret cookie if not present
+  if (!req.cookies?._csrf_secret) {
+    const secret = crypto.randomBytes(24).toString('hex');
+    res.cookie('_csrf_secret', secret, { httpOnly: true, sameSite: 'lax', secure: true, maxAge: 24 * 60 * 60 * 1000 });
+    req.cookies._csrf_secret = secret;
+  }
+  // Skip check for GET/HEAD/OPTIONS
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const token = req.body?._csrf || req.headers['x-csrf-token'];
+  const expected = crypto.createHmac('sha256', req.cookies._csrf_secret).update('csrf').digest('hex');
+  if (!token || token !== expected) {
+    return res.status(403).send('Invalid or missing CSRF token. Please go back and try again.');
+  }
+  next();
+}
+
+// Make csrf token available to all views
+app.use((req, res, next) => {
+  if (!req.cookies?._csrf_secret) {
+    const secret = crypto.randomBytes(24).toString('hex');
+    res.cookie('_csrf_secret', secret, { httpOnly: true, sameSite: 'lax', secure: true, maxAge: 24 * 60 * 60 * 1000 });
+    req.cookies._csrf_secret = secret;
+  }
+  res.locals.csrfToken = crypto.createHmac('sha256', req.cookies._csrf_secret).update('csrf').digest('hex');
+  next();
+});
+
+// Apply CSRF to all state-changing routes
+app.use(['/create', '/claim', '/signup', '/signin', '/notify', '/account', '/organizer'], csrfMiddleware);
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
+function signPayload(payload) {
+  const hmac = crypto.createHmac('sha256', COOKIE_SECRET).update(payload).digest('hex');
+  return payload + '.' + hmac;
+}
+
+function verifyPayload(signed) {
+  const dot = signed.lastIndexOf('.');
+  if (dot === -1) return null;
+  const payload = signed.slice(0, dot);
+  const sig = signed.slice(dot + 1);
+  const expected = crypto.createHmac('sha256', COOKIE_SECRET).update(payload).digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+  return payload;
+}
+
 function getAccount(req) {
   try {
     const cookie = req.cookies?.gr_auth;
     if (!cookie) return null;
-    const { id } = JSON.parse(Buffer.from(cookie, 'base64').toString());
+    const payload = verifyPayload(cookie);
+    if (!payload) return null;
+    const { id } = JSON.parse(Buffer.from(payload, 'base64').toString());
     return db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) || null;
   } catch(e) { return null; }
 }
 
 function setAuthCookie(res, account) {
   const payload = Buffer.from(JSON.stringify({ id: account.id, email: account.email })).toString('base64');
-  res.cookie('gr_auth', payload, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
+  const signed = signPayload(payload);
+  res.cookie('gr_auth', signed, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax', secure: true });
 }
 
 function requireAuth(req, res, next) {
@@ -196,6 +264,37 @@ async function sendEmail(to, subject, html) {
   });
 }
 
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: 'Too many attempts. Please try again in 15 minutes.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const claimLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  message: 'Too many claims. Please slow down.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const createLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: 'Event creation limit reached. Try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/signin', authLimiter);
+app.use('/signup', authLimiter);
+app.use('/login', authLimiter);
+app.use('/claim', claimLimiter);
+app.use('/create', createLimiter);
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => res.render('home', { account: getAccount(req) }));
@@ -207,7 +306,7 @@ app.post('/create', async (req, res) => {
   try {
     const breakdown = await breakdownVision(vision, title, date || 'TBD', location || 'TBD');
     const eventId = genId(8);
-    const organizerToken = genId(16);
+    const organizerToken = genSecureToken(24);
     const isPrivate = is_private === '1' ? 1 : 0;
 
     const account = getAccount(req);
@@ -230,7 +329,7 @@ app.post('/create', async (req, res) => {
     res.redirect(`/organizer/${organizerToken}?new=1`);
   } catch (e) {
     console.error('Create error:', e);
-    res.status(500).send('Error creating event: ' + e.message);
+    res.status(500).send('Something went wrong creating your event. Please try again.');
   }
 });
 
@@ -262,6 +361,17 @@ app.post('/claim/:taskId', async (req, res) => {
   if (!task) return res.status(404).send('Task not found');
   const { name, email, phone, note } = req.body;
   if (!name) return res.redirect(`/event/${task.event_id}?error=name`);
+
+  // Check for duplicate claim (same email + same task)
+  if (email) {
+    const existing = db.prepare("SELECT id FROM claims WHERE task_id = ? AND LOWER(email) = LOWER(?) AND status != 'denied'").get(task.id, email.trim());
+    if (existing) return res.redirect(`/event/${task.event_id}?error=duplicate`);
+  }
+
+  // Check if task is full (race condition guard)
+  if (!isUnlimited(task) && task.quantity_claimed >= task.quantity_needed) {
+    return res.redirect(`/event/${task.event_id}?error=full`);
+  }
 
   const claimId = genId();
   const needsApproval = task.requires_approval === 1;
@@ -601,10 +711,10 @@ app.post('/login', async (req, res) => {
   if (!email || !email.includes('@')) return res.redirect('/login?error=1');
 
   const events = db.prepare("SELECT * FROM events WHERE LOWER(organizer_email) = LOWER(?) ORDER BY created_at DESC").all(email.trim());
-  if (!events.length) return res.redirect('/login?error=noevent');
+  if (!events.length) return res.redirect('/login?sent=1'); // Don't reveal whether email exists
 
   // Generate token, expires in 1 hour
-  const token = genId(32);
+  const token = genSecureToken(32);
   const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   db.prepare("INSERT INTO magic_tokens (token, email, expires_at) VALUES (?, ?, ?)").run(token, email.toLowerCase().trim(), expires);
 
@@ -810,5 +920,18 @@ app.get('/admin', adminAuth, (req, res) => {
   const pendingMap = {}; pendingStats.forEach(p => pendingMap[p.event_id] = p.total);
   res.render('admin', { events, taskMap, claimMap, pendingMap, baseUrl: BASE_URL, account: getAccount(req) });
 });
+
+// Global error handler — never leak stack traces
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err.message);
+  res.status(500).send('Something went wrong. Please try again.');
+});
+
+// Prune expired magic tokens every hour
+setInterval(() => {
+  try {
+    db.prepare("DELETE FROM magic_tokens WHERE used = 1 OR expires_at < datetime('now')").run();
+  } catch(e) {}
+}, 60 * 60 * 1000);
 
 app.listen(PORT, '127.0.0.1', () => console.log(`GetRallied running on port ${PORT}`));
