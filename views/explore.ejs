@@ -4,59 +4,52 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Explore Events — GetRallied</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',sans-serif;background:#111;color:#fff;min-height:100vh}
-    nav{display:flex;align-items:center;padding:16px 24px;border-bottom:1px solid #222}
-    nav img{height:32px}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Inter',sans-serif;background:#fff;color:#111;min-height:100vh}
+    nav{border-bottom:1px solid #e5e2dc;padding:16px 32px;display:flex;align-items:center;gap:20px}
+    nav img{height:28px}
     nav .spacer{flex:1}
-    nav a{color:#888;text-decoration:none;font-size:14px;margin-left:20px;font-weight:600}
-    nav a:hover{color:#fff}
-    nav .active{color:#C8621A}
-    .container{max-width:900px;margin:0 auto;padding:32px 24px}
-    h1{font-size:28px;font-weight:800;margin-bottom:8px}
-    .sub{color:#888;font-size:15px;margin-bottom:24px}
-    .filters{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center}
-    .search{flex:1;min-width:200px;padding:10px 14px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#fff;font-size:14px;font-family:inherit}
-    .search:focus{outline:none;border-color:#C8621A}
-    .sort-btn{padding:8px 16px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#aaa;font-size:13px;font-family:inherit;cursor:pointer;text-decoration:none;font-weight:600}
-    .sort-btn.active{background:#C8621A;color:#fff;border-color:#C8621A}
-    .sort-btn:hover{border-color:#C8621A;color:#fff}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
-    .event-card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;overflow:hidden;transition:border-color .2s}
-    .event-card:hover{border-color:#C8621A}
+    nav a{color:#777;text-decoration:none;font-size:14px;font-weight:600}
+    nav a:hover{color:#111}
+    nav .active{color:#111}
+    .container{max-width:880px;margin:0 auto;padding:40px 24px}
+    h1{font-size:24px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px}
+    .sub{color:#777;font-size:15px;margin-bottom:24px}
+    .filters{display:flex;gap:10px;margin-bottom:28px;flex-wrap:wrap;align-items:center}
+    .search{flex:1;min-width:200px;padding:10px 14px;border-radius:4px;border:1.5px solid #e5e2dc;background:#fff;color:#111;font-size:14px;font-family:inherit}
+    .search:focus{outline:none;border-color:#111}
+    .search::placeholder{color:#bbb}
+    .sort-btn{padding:7px 14px;border-radius:4px;border:1.5px solid #e5e2dc;background:#fff;color:#777;font-size:13px;font-family:inherit;cursor:pointer;text-decoration:none;font-weight:600}
+    .sort-btn.active{background:#111;color:#fff;border-color:#111}
+    .sort-btn:hover{border-color:#111;color:#111}
+    .sort-btn.active:hover{color:#fff}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+    .event-card{border:1.5px solid #e5e2dc;border-radius:6px;overflow:hidden;transition:border-color .2s}
+    .event-card:hover{border-color:#111}
     .event-card a{text-decoration:none;color:inherit;display:block}
-    .card-banner{width:100%;height:140px;object-fit:cover;background:#222}
+    .card-banner{width:100%;height:140px;object-fit:cover;background:#f7f6f4}
     .card-body{padding:16px}
-    .card-title{font-size:16px;font-weight:800;margin-bottom:6px}
-    .card-meta{font-size:12px;color:#888;margin-bottom:10px}
+    .card-title{font-size:15px;font-weight:800;margin-bottom:5px;letter-spacing:-0.2px}
+    .card-meta{font-size:12px;color:#777;margin-bottom:10px}
     .card-desc{font-size:13px;color:#999;line-height:1.5;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-    .card-stats{display:flex;gap:16px;font-size:12px;color:#aaa}
-    .progress-bar{width:100%;height:4px;background:#2a2a2a;border-radius:2px;margin-top:10px;overflow:hidden}
-    .progress-fill{height:100%;background:#C8621A;border-radius:2px}
-    .empty{text-align:center;padding:60px 20px;color:#666}
-    .empty h2{font-size:20px;margin-bottom:8px;color:#888}
+    .card-stats{display:flex;gap:14px;font-size:12px;color:#777}
+    .progress-bar{width:100%;height:3px;background:#e5e2dc;border-radius:2px;margin-top:10px;overflow:hidden}
+    .progress-fill{height:100%;background:#111;border-radius:2px}
+    .empty{text-align:center;padding:60px 20px}
+    .empty h2{font-size:18px;font-weight:700;margin-bottom:8px;color:#777}
+    .empty p{color:#aaa;font-size:14px}
   </style>
 </head>
 <body>
-  <nav>
-    <a href="/"><img src="/logo.png" alt="GetRallied"></a>
-    <div class="spacer"></div>
-    <a href="/explore" class="active">Explore</a>
-    <% if (account) { %>
-      <a href="/dashboard">Dashboard</a>
-      <a href="/signout">Sign out</a>
-    <% } else { %>
-      <a href="/signin">Sign in</a>
-    <% } %>
-  </nav>
+  <%- include("partials/nav", { _navActive: "explore" }) %>
   <div class="container">
     <h1>Explore Events</h1>
     <p class="sub">Find events near you and show up where it matters.</p>
 
     <form class="filters" method="GET" action="/explore">
       <input type="text" name="q" class="search" placeholder="Search events..." value="<%= q %>">
-      <input type="hidden" name="sort" value="<%= sort %>" id="sortVal">
       <a href="/explore?q=<%= encodeURIComponent(q) %>&sort=newest" class="sort-btn <%= sort === 'newest' ? 'active' : '' %>">Newest</a>
       <a href="/explore?q=<%= encodeURIComponent(q) %>&sort=soonest" class="sort-btn <%= sort === 'soonest' ? 'active' : '' %>">Soonest</a>
       <a href="/explore?q=<%= encodeURIComponent(q) %>&sort=popular" class="sort-btn <%= sort === 'popular' ? 'active' : '' %>">Most Popular</a>
@@ -75,7 +68,7 @@
               <% if (e.banner_image) { %>
                 <img src="<%= e.banner_image %>" class="card-banner">
               <% } else { %>
-                <div class="card-banner" style="display:flex;align-items:center;justify-content:center;font-size:40px">📣</div>
+                <div class="card-banner" style="display:flex;align-items:center;justify-content:center;font-size:40px;color:#bbb">📣</div>
               <% } %>
               <div class="card-body">
                 <div class="card-title"><%= e.title %></div>

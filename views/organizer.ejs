@@ -163,10 +163,8 @@ input:focus,select:focus{border-color:#111111}
   </style>
 </head>
 <body>
-<nav>
-  <a href="/"><img src="/logo.png" alt="GetRallied" style="height:72px;display:block"></a>
+<%- include("partials/nav", { _navActive: "dashboard" }) %>
   <a href="<%= eventUrl %>" target="_blank" class="public-link">View public page →</a>
-</nav>
 
 <% if (typeof saved !== 'undefined' && saved) { %>
   <div class="success-bar"> Event details saved.</div>

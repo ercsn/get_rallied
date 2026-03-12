@@ -26,9 +26,7 @@
 </style>
 </head>
 <body>
-<nav>
-  <a href="/"><img src="/logo.png" alt="GetRallied" style="height:36px;display:block"></a>
-</nav>
+<%- include("partials/nav", { _navActive: "" }) %>
 <div class="wrap">
   <div class="card">
     <% if (sent) { %>

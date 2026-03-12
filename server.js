@@ -86,6 +86,7 @@ db.exec(`
   );
 `);
 try { db.exec('ALTER TABLE events ADD COLUMN account_id TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE accounts ADD COLUMN profile_pic TEXT'); } catch(e) {}
 
 function genId(len = 10) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -252,7 +253,7 @@ app.get('/event/:id', async (req, res) => {
   });
   const eventUrl = `${BASE_URL}/event/${event.id}`;
   const qrDataUrl = await QRCode.toDataURL(eventUrl, { width: 200, margin: 1, color: { dark: '#111', light: '#fff' } });
-  res.render('event', { event, tasks, claimsByTask, pendingByTask, qrDataUrl, eventUrl, claimed: req.query.claimed, pending: req.query.pending });
+  res.render('event', { event, tasks, claimsByTask, pendingByTask, qrDataUrl, eventUrl, claimed: req.query.claimed, pending: req.query.pending, account: getAccount(req) });
 });
 
 // Claim a task
@@ -394,7 +395,9 @@ app.get('/organizer/:token', (req, res) => {
   const taskMap = {}; tasks.forEach(t => taskMap[t.id] = t);
   const allClaimsWithTask = allClaims.map(c => ({ ...c, task: taskMap[c.task_id] }));
 
-  res.render('organizer', {
+  const __account = getAccount(req);
+    res.render('organizer', {
+      account: __account,
     event, tasks, claimsByTask, pendingClaims, allClaimsWithTask, eventUrl,
     totalNeeded, totalClaimed,
     isNew: req.query.new === '1',
@@ -647,7 +650,7 @@ app.get('/auth/:token', (req, res) => {
   }
 
   // Multiple events — show picker
-  res.render('event-picker', { events, baseUrl: BASE_URL });
+  res.render('event-picker', { events, baseUrl: BASE_URL, account: getAccount(req) });
 });
 
 
@@ -699,11 +702,66 @@ app.get('/dashboard', requireAuth, (req, res) => {
     const tasks = db.prepare('SELECT * FROM tasks WHERE event_id = ?').all(e.id);
     const claimCount = db.prepare("SELECT COUNT(*) as c FROM claims WHERE event_id = ? AND status != 'denied'").get(e.id).c;
     const pendingCount = db.prepare("SELECT COUNT(*) as c FROM claims WHERE event_id = ? AND status = 'pending'").get(e.id).c;
-    const totalNeeded = tasks.reduce((s, t) => s + t.quantity_needed, 0);
-    const totalClaimed = tasks.reduce((s, t) => s + t.quantity_claimed, 0);
+    const totalNeeded = tasks.filter(t => t.quantity_needed > 0).reduce((s, t) => s + t.quantity_needed, 0);
+    const totalClaimed = tasks.filter(t => t.quantity_needed > 0).reduce((s, t) => s + t.quantity_claimed, 0);
     return { ...e, taskCount: tasks.length, claimCount, pendingCount, totalNeeded, totalClaimed };
   });
   res.render('dashboard', { account: req.account, events: eventData });
+});
+
+
+// ── Account Settings ──────────────────────────────────────────────────────────
+
+app.get('/account', requireAuth, (req, res) => {
+  res.render('account', { account: req.account, saved: req.query.saved, error: req.query.error, _navActive: 'account' });
+});
+
+app.post('/account', requireAuth, (req, res) => {
+  const { name, email } = req.body;
+  if (!email || !email.trim()) return res.redirect('/account?error=Email is required');
+  // Check if email is taken by another account
+  const existing = db.prepare('SELECT id FROM accounts WHERE LOWER(email) = LOWER(?) AND id != ?').get(email.trim(), req.account.id);
+  if (existing) return res.redirect('/account?error=That email is already in use');
+  db.prepare('UPDATE accounts SET name = ?, email = ? WHERE id = ?').run((name || '').trim(), email.toLowerCase().trim(), req.account.id);
+  // Update auth cookie with new email
+  const updated = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.account.id);
+  setAuthCookie(res, updated);
+  res.redirect('/account?saved=1');
+});
+
+app.post('/account/password', requireAuth, (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) return res.redirect('/account?error=All password fields are required');
+  if (!bcrypt.compareSync(current_password, req.account.password_hash)) return res.redirect('/account?error=Current password is incorrect');
+  if (new_password.length < 6) return res.redirect('/account?error=New password must be at least 6 characters');
+  const hash = bcrypt.hashSync(new_password, 10);
+  db.prepare('UPDATE accounts SET password_hash = ? WHERE id = ?').run(hash, req.account.id);
+  res.redirect('/account?saved=1');
+});
+
+app.post('/account/photo', requireAuth, (req, res) => {
+  const upload = require('multer')({ dest: 'public/uploads/', limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (r, file, cb) => cb(null, /^image\/(jpeg|png|gif|webp)$/.test(file.mimetype))
+  }).single('photo');
+  upload(req, res, (err) => {
+    if (err) return res.redirect('/account?error=Upload failed');
+    if (!req.file) return res.redirect('/account?error=No image selected');
+    const ext = req.file.originalname.split('.').pop();
+    const newPath = 'public/uploads/profile_' + req.account.id + '.' + ext;
+    require('fs').renameSync(req.file.path, newPath);
+    const url = '/uploads/profile_' + req.account.id + '.' + ext;
+    db.prepare('UPDATE accounts SET profile_pic = ? WHERE id = ?').run(url, req.account.id);
+    res.redirect('/account?saved=1');
+  });
+});
+
+app.post('/account/photo/remove', requireAuth, (req, res) => {
+  const pic = req.account.profile_pic;
+  if (pic) {
+    try { require('fs').unlinkSync('public' + pic); } catch(e) {}
+    db.prepare('UPDATE accounts SET profile_pic = NULL WHERE id = ?').run(req.account.id);
+  }
+  res.redirect('/account?saved=1');
 });
 
 app.get('/explore', (req, res) => {
@@ -725,8 +783,8 @@ app.get('/explore', (req, res) => {
   const eventData = events.map(e => {
     const tasks = db.prepare('SELECT * FROM tasks WHERE event_id = ?').all(e.id);
     const claimCount = db.prepare("SELECT COUNT(*) as c FROM claims WHERE event_id = ? AND status != 'denied'").get(e.id).c;
-    const totalNeeded = tasks.reduce((s, t) => s + t.quantity_needed, 0);
-    const totalClaimed = tasks.reduce((s, t) => s + t.quantity_claimed, 0);
+    const totalNeeded = tasks.filter(t => t.quantity_needed > 0).reduce((s, t) => s + t.quantity_needed, 0);
+    const totalClaimed = tasks.filter(t => t.quantity_needed > 0).reduce((s, t) => s + t.quantity_claimed, 0);
     return { ...e, taskCount: tasks.length, claimCount, totalNeeded, totalClaimed };
   });
   const account = getAccount(req);
@@ -744,13 +802,13 @@ function adminAuth(req, res, next) {
 
 app.get('/admin', adminAuth, (req, res) => {
   const events = db.prepare('SELECT * FROM events ORDER BY created_at DESC').all();
-  const taskStats = db.prepare('SELECT event_id, COUNT(*) as total, SUM(quantity_needed) as needed, SUM(quantity_claimed) as claimed FROM tasks GROUP BY event_id').all();
+  const taskStats = db.prepare('SELECT event_id, COUNT(*) as total, SUM(CASE WHEN quantity_needed > 0 THEN quantity_needed ELSE 0 END) as needed, SUM(CASE WHEN quantity_needed > 0 THEN quantity_claimed ELSE 0 END) as claimed FROM tasks GROUP BY event_id').all();
   const claimStats = db.prepare("SELECT event_id, COUNT(*) as total FROM claims WHERE status != 'denied' GROUP BY event_id").all();
   const pendingStats = db.prepare("SELECT event_id, COUNT(*) as total FROM claims WHERE status = 'pending' GROUP BY event_id").all();
   const taskMap = {}; taskStats.forEach(t => taskMap[t.event_id] = t);
   const claimMap = {}; claimStats.forEach(c => claimMap[c.event_id] = c.total);
   const pendingMap = {}; pendingStats.forEach(p => pendingMap[p.event_id] = p.total);
-  res.render('admin', { events, taskMap, claimMap, pendingMap, baseUrl: BASE_URL });
+  res.render('admin', { events, taskMap, claimMap, pendingMap, baseUrl: BASE_URL, account: getAccount(req) });
 });
 
 app.listen(PORT, '127.0.0.1', () => console.log(`GetRallied running on port ${PORT}`));

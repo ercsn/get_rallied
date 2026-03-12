@@ -1,0 +1,13 @@
+<nav style="border-bottom:1px solid #e5e2dc;padding:16px 32px;display:flex;align-items:center;gap:20px;font-family:'Inter',sans-serif">
+  <a href="/"><img src="/logo.png" alt="GetRallied" style="height:28px;display:block"></a>
+  <div style="flex:1"></div>
+  <a href="/explore" style="color:<%= typeof _navActive !== 'undefined' && _navActive === 'explore' ? '#111' : '#777' %>;text-decoration:none;font-size:14px;font-weight:600">Explore</a>
+  <% if (typeof account !== 'undefined' && account) { %>
+    <a href="/dashboard" style="color:<%= typeof _navActive !== 'undefined' && _navActive === 'dashboard' ? '#111' : '#777' %>;text-decoration:none;font-size:14px;font-weight:600">Dashboard</a>
+    <a href="/account" style="color:<%= typeof _navActive !== 'undefined' && _navActive === 'account' ? '#111' : '#777' %>;text-decoration:none;font-size:14px;font-weight:600"><%= account.name || 'Account' %></a>
+    <a href="/signout" style="color:#777;text-decoration:none;font-size:14px;font-weight:600">Sign out</a>
+  <% } else { %>
+    <a href="/signin" style="color:#777;text-decoration:none;font-size:14px;font-weight:600">Sign in</a>
+    <a href="/signup" style="background:#111;color:#fff;padding:7px 14px;font-size:13px;font-weight:700;text-decoration:none">Sign up</a>
+  <% } %>
+</nav>

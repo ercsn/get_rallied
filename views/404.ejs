@@ -33,4 +33,5 @@ h1{font-size:24px;color:#fff}a{color:#F26522}
 
   </style></head>
 <body>
+<%- include("partials/nav", { _navActive: "", account: typeof account !== "undefined" ? account : null }) %>
 <div style="padding:24px 32px;border-bottom:1px solid #eee"><a href="/"><img src="/logo.png" alt="GetRallied" style="height:36px;display:block"></a></div><h1>Page not found</h1><p>This event may have moved. <a href="/">Create a new registry →</a></p></body></html>

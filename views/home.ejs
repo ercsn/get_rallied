@@ -34,10 +34,7 @@ a{color:#111} a:hover{color:#444}
 </style>
 </head>
 <body>
-<nav>
-  <a href="/"><img src="/logo.png" alt="GetRallied" style="height:38px;display:block"></a>
-  <div class="nav-tag">Coming Soon</div>
-</nav>
+<%- include("partials/nav", { _navActive: "" }) %>
 <div class="hero">
   <div class="hero-inner">
     <div style="margin-bottom:24px"><img src="/logo.png" alt="GetRallied" style="height:80px;display:block;margin:0 auto"></div>

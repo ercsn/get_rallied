@@ -139,9 +139,7 @@ input:focus{border-color:#111111}
   </style>
 </head>
 <body>
-<nav>
-  <a href="/"><img src="/logo.png" alt="GetRallied" style="height:36px;display:block"></a>
-</nav>
+<%- include("partials/nav", { _navActive: "" }) %>
 <% if (event.banner_image) { %>
 <img src="<%= event.banner_image %>" alt="Event banner" class="event-banner">
 <% } %>
