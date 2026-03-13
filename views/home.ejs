@@ -122,7 +122,7 @@ footer{border-top:1px solid var(--border);padding:32px 24px;text-align:center}
   <h1>Organize anything.<span>AI breaks it down. People show up.</span></h1>
   <p class="hero-sub">Describe what you're trying to pull off. GetRallied turns it into a task board, and people claim roles so everyone knows what they're doing.</p>
   <div class="hero-actions">
-    <a href="/signup" class="btn-primary">Create your first event</a>
+    <a href="<%= (typeof account !== 'undefined' && account) ? '/create' : '/signup' %>" class="btn-primary">Create your first event</a>
     <a href="/explore" class="btn-secondary">Browse events</a>
   </div>
 </div>

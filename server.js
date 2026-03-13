@@ -481,6 +481,11 @@ app.use('/create', createLimiter);
 
 app.get('/', (req, res) => res.render('home', { account: getAccount(req) }));
 
+// Create event form
+app.get('/create', requireAuth, (req, res) => {
+  res.render('create', { account: req.account, csrfToken: res.locals.csrfToken });
+});
+
 // Create event
 app.post('/create', async (req, res) => {
   const { title, vision, date, location, organizer_name, organizer_email, is_private } = req.body;

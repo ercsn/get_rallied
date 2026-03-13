@@ -43,13 +43,13 @@
   <div class="container">
     <h1>Your Events</h1>
     <p class="sub">Manage your events and see who's rallying.</p>
-    <a href="/" class="btn-create">+ Create New Event</a>
+    <a href="/create" class="btn-create">+ Create New Event</a>
 
     <% if (events.length === 0) { %>
       <div class="empty">
         <h2>No events yet</h2>
         <p>Create your first event and start rallying people.</p>
-        <a href="/" class="btn-create" style="margin-top:20px;display:inline-block">🚀 Create Your First Event</a>
+        <a href="/create" class="btn-create" style="margin-top:20px;display:inline-block">🚀 Create Your First Event</a>
       </div>
     <% } else { %>
       <div class="grid">
