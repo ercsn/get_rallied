@@ -766,6 +766,20 @@ app.post('/organizer/:token/add-task', (req, res) => {
   res.redirect(`/organizer/${req.params.token}`);
 });
 
+// Edit task
+app.post('/organizer/:token/edit-task/:taskId', (req, res) => {
+  const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
+  if (!event) return res.status(404).send('Not found');
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND event_id = ?').get(req.params.taskId, event.id);
+  if (!task) return res.status(404).send('Task not found');
+  const { title, description, category, quantity_needed, requires_approval } = req.body;
+  if (!title) return res.redirect(`/organizer/${req.params.token}`);
+  const qtyVal = (req.body.unlimited === '1') ? 0 : (parseInt(quantity_needed) || 1);
+  db.prepare('UPDATE tasks SET title = ?, description = ?, category = ?, quantity_needed = ?, requires_approval = ? WHERE id = ? AND event_id = ?')
+    .run(title.trim(), description || '', category || 'people', qtyVal, requires_approval === '1' ? 1 : 0, req.params.taskId, event.id);
+  res.redirect(`/organizer/${req.params.token}`);
+});
+
 // Delete task
 app.post('/organizer/:token/delete-task/:taskId', (req, res) => {
   const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
