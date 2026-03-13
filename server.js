@@ -153,6 +153,7 @@ function recalcClaimed(taskId) {
 function isUnlimited(task) { return task.quantity_needed === 0; }
 function isFull(task) { return !isUnlimited(task) && task.quantity_claimed >= task.quantity_needed; }
 
+app.set('trust proxy', 1);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100kb' }));
