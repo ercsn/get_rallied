@@ -143,6 +143,8 @@ try { db.exec('ALTER TABLE events ADD COLUMN location_name TEXT DEFAULT NULL'); 
 try { db.exec('ALTER TABLE events ADD COLUMN location_address TEXT DEFAULT NULL'); } catch(e) {}
 try { db.exec('ALTER TABLE events ADD COLUMN location_maps_url TEXT DEFAULT NULL'); } catch(e) {}
 try { db.exec('ALTER TABLE events ADD COLUMN banner_image TEXT DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE events ADD COLUMN latitude REAL DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE events ADD COLUMN longitude REAL DEFAULT NULL'); } catch(e) {}
 
 // Recalculate approved claim count for a task
 function recalcClaimed(taskId) {
@@ -290,6 +292,18 @@ Rules:
 }
 
 // ── Email ─────────────────────────────────────────────────────────────────────
+// Geocode a location string → { lat, lon } using OpenStreetMap Nominatim
+async function geocodeLocation(locationStr) {
+  if (!locationStr || locationStr.trim().length < 3) return null;
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locationStr)}&format=json&limit=1`;
+    const resp = await fetch(url, { headers: { 'User-Agent': 'GetRallied/1.0 (getrallied.com)' } });
+    const results = await resp.json();
+    if (results.length > 0) return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon) };
+  } catch(e) { console.error('Geocode error:', e.message); }
+  return null;
+}
+
 async function sendEmail(to, subject, html) {
   if (!BREVO_KEY) return;
   await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -506,8 +520,10 @@ app.post('/create', async (req, res) => {
     const isPrivate = is_private === '1' ? 1 : 0;
 
     const account = getAccount(req);
-    db.prepare(`INSERT INTO events (id,organizer_token,title,description,vision,date,location,organizer_name,organizer_email,is_private,account_id,date_iso,location_address) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(eventId, organizerToken, title.trim(), '', vision.trim(), date || '', location || '', organizer_name || '', organizer_email || NOTIFY_EMAIL, isPrivate, account ? account.id : null, date || null, location || null);
+    // Geocode location
+    const geo = await geocodeLocation(location);
+    db.prepare(`INSERT INTO events (id,organizer_token,title,description,vision,date,location,organizer_name,organizer_email,is_private,account_id,date_iso,location_address,latitude,longitude) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(eventId, organizerToken, title.trim(), '', vision.trim(), date || '', location || '', organizer_name || '', organizer_email || NOTIFY_EMAIL, isPrivate, account ? account.id : null, date || null, location || null, geo?.lat || null, geo?.lon || null);
 
     (breakdown.tasks || []).forEach((t, i) => {
       db.prepare(`INSERT INTO tasks (id,event_id,title,description,category,quantity_needed,requires_approval,sort_order) VALUES (?,?,?,?,?,?,?,?)`)
@@ -858,7 +874,7 @@ app.post('/organizer/:token/upload-images',
 
 
 // Update event details (time/location)
-app.post('/organizer/:token/update-details', (req, res) => {
+app.post('/organizer/:token/update-details', async (req, res) => {
   const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
   if (!event) return res.status(404).send('Not found');
   const { date, date_iso, event_time, location_name, location_address, location_maps_url } = req.body;
@@ -867,8 +883,16 @@ app.post('/organizer/:token/update-details', (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     if (date_iso < today) return res.redirect(`/organizer/${req.params.token}?error=Date cannot be in the past`);
   }
+  // Re-geocode if location changed
+  const locStr = location_address || location_name || '';
+  const oldLoc = event.location_address || event.location_name || '';
+  let lat = event.latitude, lon = event.longitude;
+  if (locStr && locStr !== oldLoc) {
+    const geo = await geocodeLocation(locStr);
+    if (geo) { lat = geo.lat; lon = geo.lon; }
+  }
   db.prepare(`UPDATE events SET
-    date = ?, date_iso = ?, event_time = ?, location_name = ?, location_address = ?, location_maps_url = ?
+    date = ?, date_iso = ?, event_time = ?, location_name = ?, location_address = ?, location_maps_url = ?, latitude = ?, longitude = ?
     WHERE id = ?`).run(
     date || event.date,
     date_iso || event.date_iso || null,
@@ -876,6 +900,7 @@ app.post('/organizer/:token/update-details', (req, res) => {
     location_name || null,
     location_address || null,
     location_maps_url || null,
+    lat, lon,
     event.id
   );
   res.redirect(`/organizer/${req.params.token}?saved=1`);
@@ -1425,9 +1450,23 @@ app.get('/my-claims', requireAuth, (req, res) => {
   res.render('my-claims', { claims, account: req.account });
 });
 
-app.get('/explore', (req, res) => {
+// Haversine distance (miles)
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 3959;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+app.get('/explore', async (req, res) => {
   const q = req.query.q || '';
   const sort = req.query.sort || 'newest';
+  const locationQ = req.query.location || '';
+  const lat = parseFloat(req.query.lat) || null;
+  const lon = parseFloat(req.query.lon) || null;
+  const radius = parseInt(req.query.radius) || 50; // miles
+
   let query = "SELECT * FROM events WHERE is_private = 0 AND (status IS NULL OR status = 'active') AND (date_iso IS NULL OR date_iso >= date('now', '-1 day'))";
   const params = [];
   if (q) {
@@ -1441,16 +1480,35 @@ app.get('/explore', (req, res) => {
     case 'popular': query += " ORDER BY (SELECT COUNT(*) FROM claims WHERE claims.event_id = events.id AND status != 'denied') DESC"; break;
     default: query += " ORDER BY created_at DESC";
   }
-  const events = db.prepare(query).all(...params);
-  const eventData = events.map(e => {
+  let allEvents = db.prepare(query).all(...params);
+
+  // Location-based filtering
+  let searchLat = lat, searchLon = lon;
+  if (!searchLat && locationQ) {
+    const geo = await geocodeLocation(locationQ);
+    if (geo) { searchLat = geo.lat; searchLon = geo.lon; }
+  }
+
+  let eventData = allEvents.map(e => {
     const tasks = db.prepare('SELECT * FROM tasks WHERE event_id = ?').all(e.id);
     const claimCount = db.prepare("SELECT COUNT(*) as c FROM claims WHERE event_id = ? AND status != 'denied'").get(e.id).c;
     const totalNeeded = tasks.filter(t => t.quantity_needed > 0).reduce((s, t) => s + t.quantity_needed, 0);
     const totalClaimed = tasks.filter(t => t.quantity_needed > 0).reduce((s, t) => s + t.quantity_claimed, 0);
-    return { ...e, taskCount: tasks.length, claimCount, totalNeeded, totalClaimed };
+    let distance = null;
+    if (searchLat && e.latitude && e.longitude) {
+      distance = Math.round(haversine(searchLat, searchLon, e.latitude, e.longitude));
+    }
+    return { ...e, taskCount: tasks.length, claimCount, totalNeeded, totalClaimed, distance };
   });
+
+  // If location search active, filter by radius and sort by distance
+  if (searchLat) {
+    eventData = eventData.filter(e => e.distance !== null && e.distance <= radius);
+    eventData.sort((a, b) => a.distance - b.distance);
+  }
+
   const account = getAccount(req);
-  res.render('explore', { events: eventData, q, sort, account });
+  res.render('explore', { events: eventData, q, sort, account, locationQ, radius, searchLat, searchLon });
 });
 
 const adminLimiter = rateLimit({

@@ -56,12 +56,28 @@
     <h1>Explore Events</h1>
     <p class="sub">Find events near you and show up where it matters.</p>
 
-    <form class="filters" method="GET" action="/explore">
-      <input type="text" name="q" class="search" placeholder="Search events..." value="<%= q %>">
-      <a href="/explore?q=<%= encodeURIComponent(q) %>&sort=newest" class="sort-btn <%= sort === 'newest' ? 'active' : '' %>">Newest</a>
-      <a href="/explore?q=<%= encodeURIComponent(q) %>&sort=soonest" class="sort-btn <%= sort === 'soonest' ? 'active' : '' %>">Soonest</a>
-      <a href="/explore?q=<%= encodeURIComponent(q) %>&sort=popular" class="sort-btn <%= sort === 'popular' ? 'active' : '' %>">Most Popular</a>
+    <form class="filters" method="GET" action="/explore" id="explore-form">
+      <input type="text" name="q" class="search" placeholder="Search events..." value="<%= q %>" style="flex:1;min-width:160px">
+      <input type="text" name="location" class="search" placeholder="📍 City or ZIP..." value="<%= typeof locationQ !== 'undefined' ? locationQ : '' %>" style="flex:0.7;min-width:140px">
+      <input type="hidden" name="lat" id="geo-lat" value="<%= typeof searchLat !== 'undefined' && searchLat ? searchLat : '' %>">
+      <input type="hidden" name="lon" id="geo-lon" value="<%= typeof searchLon !== 'undefined' && searchLon ? searchLon : '' %>">
+      <select name="radius" class="sort-btn" style="padding:7px 10px;cursor:pointer">
+        <option value="25" <%= (typeof radius !== 'undefined' && radius == 25) ? 'selected' : '' %>>25 mi</option>
+        <option value="50" <%= (typeof radius === 'undefined' || radius == 50) ? 'selected' : '' %>>50 mi</option>
+        <option value="100" <%= (typeof radius !== 'undefined' && radius == 100) ? 'selected' : '' %>>100 mi</option>
+        <option value="250" <%= (typeof radius !== 'undefined' && radius == 250) ? 'selected' : '' %>>250 mi</option>
+      </select>
+      <button type="button" class="sort-btn" onclick="useMyLocation()" title="Use my location" style="cursor:pointer">📍 Near Me</button>
+      <button type="submit" class="sort-btn" style="background:#111;color:#fff;border-color:#111;cursor:pointer">Search</button>
     </form>
+    <div class="filters" style="margin-top:-16px;margin-bottom:20px;gap:6px">
+      <a href="/explore?q=<%= encodeURIComponent(q) %>&location=<%= encodeURIComponent(typeof locationQ !== 'undefined' ? locationQ : '') %>&sort=newest" class="sort-btn <%= sort === 'newest' ? 'active' : '' %>">Newest</a>
+      <a href="/explore?q=<%= encodeURIComponent(q) %>&location=<%= encodeURIComponent(typeof locationQ !== 'undefined' ? locationQ : '') %>&sort=soonest" class="sort-btn <%= sort === 'soonest' ? 'active' : '' %>">Soonest</a>
+      <a href="/explore?q=<%= encodeURIComponent(q) %>&location=<%= encodeURIComponent(typeof locationQ !== 'undefined' ? locationQ : '') %>&sort=popular" class="sort-btn <%= sort === 'popular' ? 'active' : '' %>">Most Popular</a>
+      <% if (typeof locationQ !== 'undefined' && locationQ) { %>
+        <a href="/explore?q=<%= encodeURIComponent(q) %>" class="sort-btn" style="color:#c00;border-color:#fcc">✕ Clear location</a>
+      <% } %>
+    </div>
 
     <% if (events.length === 0) { %>
       <div class="empty">
@@ -82,6 +98,9 @@
                 <div class="card-title"><%= e.title %></div>
                 <div class="card-meta">
                   📅 <%= e.date || 'Date TBD' %> · 📍 <%= e.location || 'Location TBD' %>
+                  <% if (e.distance !== null && e.distance !== undefined) { %>
+                    · <strong><%= e.distance %> mi away</strong>
+                  <% } %>
                 </div>
                 <% if (e.vision) { %>
                   <div class="card-desc"><%= e.vision %></div>
@@ -101,5 +120,22 @@
       </div>
     <% } %>
   </div>
+  <script>
+  function useMyLocation() {
+    if (!navigator.geolocation) return alert('Geolocation not supported by your browser');
+    const btn = event.target;
+    btn.textContent = '⏳ Locating...';
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        document.getElementById('geo-lat').value = pos.coords.latitude;
+        document.getElementById('geo-lon').value = pos.coords.longitude;
+        // Clear text location since we're using coordinates
+        document.querySelector('input[name="location"]').value = 'My Location';
+        document.getElementById('explore-form').submit();
+      },
+      err => { btn.textContent = '📍 Near Me'; alert('Could not get your location. Try searching by city instead.'); }
+    );
+  }
+  </script>
 </body>
 </html>
