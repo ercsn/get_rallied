@@ -176,6 +176,8 @@ function generateCsrf(req) {
 }
 
 function csrfMiddleware(req, res, next) {
+  // Skip for multipart/form-data routes — CSRF checked after multer in those handlers
+  if (req.is('multipart/form-data')) return next();
   // Set secret cookie if not present
   if (!req.cookies?._csrf_secret) {
     const secret = crypto.randomBytes(24).toString('hex');
@@ -808,6 +810,11 @@ const path_mod = require('path');
 app.post('/organizer/:token/upload-images',
   upload.fields([{ name: 'org_logo', maxCount: 1 }, { name: 'banner_image', maxCount: 1 }]),
   (req, res) => {
+    // CSRF check after multer (multipart body now available)
+    const token = req.body?._csrf || req.headers['x-csrf-token'];
+    const expected = req.cookies?._csrf_secret ? crypto.createHmac('sha256', req.cookies._csrf_secret).update('csrf').digest('hex') : null;
+    if (!expected || token !== expected) return res.status(403).send('Invalid or missing CSRF token. Please go back and try again.');
+
     const event = db.prepare('SELECT * FROM events WHERE organizer_token = ?').get(req.params.token);
     if (!event) return res.status(404).send('Not found');
 
